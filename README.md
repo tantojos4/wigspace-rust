@@ -29,62 +29,52 @@ cargo run --release
 
 ---
 
-## 🗺️ Roadmap
 
-<details>
-<summary><strong>Click to expand full roadmap</strong></summary>
+## � Roadmap Timeline
 
-### Stage 0: Testing & CI
-- Unit/integration tests, CI pipeline, code coverage, fuzzing
+```
+Stage 0: Testing & CI
+	⬇️
+Stage 1: MVP Core
+	⬇️
+Stage 2: Static File Serving
+	⬇️
+Stage 3: Reverse Proxy
+	⬇️
+Stage 4: Routing & Modular Handlers
+	⬇️
+Stage 4.5: Access Control & Authentication
+	⬇️
+Stage 5: Hot Reload & Dynamic Config
+	⬇️
+Stage 6: Advanced Features
+	⬇️
+Stage 7: Observability & Operations
+	⬇️
+Stage 7.8: Deployment & Containerization
+	⬇️
+Stage 8: Extensibility & Plugins
+```
 
-### Stage 1: MVP Core
-- Async HTTP server
-- Config file loading (YAML/TOML/JSON)
-- Basic request logging
+### 📌 Detail per Stage
 
-### Stage 2: Static File Serving
-- Serve static files from configurable directory
-- Directory listing (optional)
-- MIME type detection
+- **Stage 0: Testing & CI** — Unit/integration tests, CI pipeline, code coverage, fuzzing
+- **Stage 1: MVP Core** — Async HTTP server, config file loading, basic request logging
+- **Stage 2: Static File Serving** — Serve static files, directory listing, MIME detection
+- **Stage 3: Reverse Proxy** — Proxy_pass, health checks, load balancing
+- **Stage 4: Routing & Modular Handlers** — Path-based routing, modular handler, middleware
+- **Stage 4.5: Access Control & Authentication** — JWT/API key/OAuth2, access control, RBAC
+- **Stage 5: Hot Reload & Dynamic Config** — Reload config tanpa downtime, dynamic routes
+- **Stage 6: Advanced Features** — TLS, gzip, caching, rate limiting, security
+- **Stage 7: Observability & Operations** — Logging, Prometheus metrics, health endpoints
+- **Stage 7.8: Deployment & Containerization** — Docker, Helm, env config, prod/dev separation, CI/CD
+- **Stage 8: Extensibility & Plugins** — Plugin system, WebAssembly
 
-### Stage 3: Reverse Proxy
-- Proxy requests to backend servers (proxy_pass)
-- Health checks, round-robin load balancing
-
-### Stage 4: Routing & Modular Handlers
-- Path-based routing (/static/, /api/)
-- Modular handler system
-- Middleware support (logging, auth, etc)
-
-### Stage 4.5: Access Control & Authentication
-- Middleware for JWT/API key/OAuth2
-- Path-based access control
-- Role-based authorization (optional)
-
-### Stage 5: Hot Reload & Dynamic Config
-- Reload config without downtime (SIGHUP/file watcher)
-- Dynamic updates to routes/handlers
-
-### Stage 6: Advanced Features
-- TLS/HTTPS, gzip, caching, rate limiting, security filters
-
-### Stage 7: Observability & Operations
-- Access/error logging, Prometheus metrics, health endpoints
-
-### Stage 7.8: Deployment & Containerization
-- Dockerfile, Helm chart/Compose, env config, prod/dev separation, CI/CD
-
-### Stage 8: Extensibility & Plugins
-- Plugin system for custom handlers/middleware
-- Dynamic module loading (WebAssembly)
-
-#### Additional Suggestions
+**Tambahan:**
 - Basic error handling (custom 404/500)
 - WebSocket support
 - Config validation
 - CLI interface
-
-</details>
 
 ---
 
