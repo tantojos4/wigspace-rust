@@ -1,0 +1,7 @@
+address: "127.0.0.1"
+port: 8080
+static_dir: "./public"
+proxy_pass: null
+
+access_log: "log/access.log"
+error_log: "log/error.log"

@@ -1,0 +1,16 @@
+[package]
+name = "wigspace-rust"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+hyper = { version = "1" }
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+log = "0.4"
+env_logger = "0.10"
+http-body-util = "0.1"
+hyper-util = { version = "0.1", features = ["full"] }
+flexi_logger = "0.31"
+chrono = "0.4"
