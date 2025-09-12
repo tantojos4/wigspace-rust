@@ -1,10 +1,10 @@
-use wigspace_rust::handlers::handle_request;
-use wigspace_rust::config::Config;
-use hyper::{Request, Method};
 use http_body_util::{BodyExt, Empty};
 use hyper::body::Bytes;
+use hyper::{Method, Request};
 use std::sync::Arc;
 use tokio::runtime::Runtime;
+use wigspace_rust::config::Config;
+use wigspace_rust::handlers::handle_request;
 
 #[test]
 fn test_handle_request_hello_world() {
