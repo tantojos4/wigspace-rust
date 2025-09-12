@@ -15,3 +15,10 @@ hyper-util = { version = "0.1", features = ["full"] }
 flexi_logger = "0.31"
 chrono = "0.4"
 libloading = "0.8.8"
+wasmtime = "36.0.2"
+anyhow = "1.0.99"
+rlua = "0.20.1"
+
+[dev-dependencies]
+rlua = "0.20.1"
+wasmtime = "36.0.2"

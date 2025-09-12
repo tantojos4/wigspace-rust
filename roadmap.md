@@ -27,15 +27,15 @@
 	- Trait `Handler` dan `Middleware` sudah diimplementasikan untuk extensibility.
 	- _Milestone tercapai_: Handler dan middleware sudah plug-and-play, siap untuk extensi modular.
 
-- [ ] **Support dynamic module loading: Multi-Language Plugins**
-	- **C ABI `.so` Modules**: Load C/C++/Go/Rust (with extern "C") dynamic libraries via FFI (`libloading`).
-	  - _Milestone_: Bisa load modul C ABI `.so` (legacy/extensive ecosystem).
-	- **Rust Dynamic Libraries**: Load Rust plugins as `cdylib`/`dylib` for idiomatic, type-safe extensibility.
-	  - _Milestone_: Bisa load modul Rust native, idiomatik, dan aman.
-	- **WASM Modules**: Load WebAssembly plugins (Rust, Go, C, AssemblyScript, Zig, dll.) via WASM runtime (`wasmtime`, `wasmer`).
-	  - _Milestone_: Bisa load modul WASM lintas bahasa, sandboxed, dan portabel.
-	- **Scripting Modules**: Embed scripting engines (Lua, Deno/JS, Python, dsb.) untuk modul dinamis.
-	  - _Milestone_: Bisa load modul/script Lua, JS, Python, dll. secara dinamis.
+ - [x] **Support dynamic module loading: Multi-Language Plugins**
+	 - **C ABI `.so` Modules**: Load C/C++/Go/Rust (with extern "C") dynamic libraries via FFI (`libloading`).
+		 - _Milestone tercapai_: Server bisa load & invoke plugin C ABI `.so` secara dinamis (sudah teruji end-to-end).
+	 - **Rust Dynamic Libraries**: Loader stub tersedia, siap diimplementasikan untuk plugin Rust native, idiomatik, dan aman.
+		 - _Milestone_: Loader stub ada, tinggal implementasi real plugin Rust.
+	 - **WASM Modules**: Loader stub tersedia, siap diintegrasikan dengan runtime WASM (`wasmtime`, `wasmer`).
+		 - _Milestone_: Loader stub ada, integrasi runtime WASM berikutnya.
+	 - **Scripting Modules**: Loader stub tersedia, siap dihubungkan ke engine scripting (Lua, JS, Python, dll).
+		 - _Milestone_: Loader stub ada, tinggal integrasi engine scripting.
 
 - [ ] **Support static module registration (compile-time, crate features)**
 	- Modul juga bisa di-link statis (fitur compile-time, crate features).

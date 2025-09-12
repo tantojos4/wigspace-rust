@@ -18,7 +18,7 @@ use simple_handler::SimpleHandler;
 mod modules {
     pub mod dynamic_loader;
 }
-use modules::dynamic_loader::{CAbiModule, DynamicModule};
+use modules::dynamic_loader::{CAbiModule, ScriptingModule, DynamicModule};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -79,7 +79,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .add_middleware(logging_middleware)
         .build(handler);
 
-    // --- PLUGIN LOADER ---
+    // --- PLUGIN LOADERS ---
     // Load the plugin_example .so at startup
     let mut so_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     so_path.push("src/modules/plugin_example/target/release/libplugin_example.so");
@@ -98,12 +98,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     };
     let plugin: Arc<Option<CAbiModule>> = Arc::new(plugin);
 
+    // Load Lua plugin at startup
+    let mut lua_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    lua_path.push("src/modules/lua_plugin_example/hello.lua");
+    let lua_plugin: Option<ScriptingModule> = match ScriptingModule::load(&lua_path) {
+        Ok(m) => Some(m),
+        Err(e) => {
+            eprintln!("Failed to load Lua plugin: {}", e);
+            None
+        }
+    };
+    let lua_plugin: Arc<Option<ScriptingModule>> = Arc::new(lua_plugin);
+
     loop {
         let (stream, _) = listener.accept().await?;
         let io = TokioIo::new(stream);
         let config = config.clone();
         let chain = chain.clone();
         let plugin = plugin.clone();
+        let lua_plugin = lua_plugin.clone();
         tokio::task::spawn(async move {
             if let Err(err) = http1::Builder::new()
                 .serve_connection(
@@ -112,8 +125,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         let config = config.clone();
                         let chain = chain.clone();
                         let plugin = plugin.clone();
+                        let lua_plugin = lua_plugin.clone();
                         async move {
-                            // If the request is to /plugin, delegate to the plugin
+                            // If the request is to /plugin, delegate to the C ABI plugin
                             if req.uri().path() == "/plugin" {
                                 if let Some(plugin) = plugin.as_ref() {
                                     let input = format!("{} {}", req.method(), req.uri());
@@ -127,6 +141,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                         .status(500)
                                         .body(http_body_util::Full::new(hyper::body::Bytes::from(
                                             "Plugin not loaded",
+                                        )))
+                                        .unwrap();
+                                    Ok::<_, std::convert::Infallible>(resp)
+                                }
+                            // If the request is to /lua-plugin, delegate to the Lua plugin
+                            } else if req.uri().path() == "/lua-plugin" {
+                                if let Some(lua_plugin) = lua_plugin.as_ref() {
+                                    let input = format!("{} {}", req.method(), req.uri());
+                                    let output = lua_plugin.handle(&input);
+                                    let resp = hyper::Response::new(http_body_util::Full::new(
+                                        hyper::body::Bytes::from(output),
+                                    ));
+                                    Ok::<_, std::convert::Infallible>(resp)
+                                } else {
+                                    let resp = hyper::Response::builder()
+                                        .status(500)
+                                        .body(http_body_util::Full::new(hyper::body::Bytes::from(
+                                            "Lua plugin not loaded",
                                         )))
                                         .unwrap();
                                     Ok::<_, std::convert::Infallible>(resp)

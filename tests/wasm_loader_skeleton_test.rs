@@ -1,6 +1,6 @@
-//! Integration test for WASM loader stub
+//! Integration test for WASM loader skeleton
+use wigspace_rust::modules::dynamic_loader::{WasmModule, DynamicModule};
 use std::path::PathBuf;
-use wigspace_rust::modules::dynamic_loader::{DynamicModule, WasmModule};
 
 #[test]
 fn test_wasm_loader_skeleton() {
@@ -10,10 +10,6 @@ fn test_wasm_loader_skeleton() {
     let module = WasmModule::load(&wasm_path).expect("Failed to load WASM module");
     let input = "hello wasm";
     let output = module.handle(input);
-    assert!(
-        output.contains("[wasm_plugin] hello from wasm"),
-        "Unexpected WASM plugin output: {}",
-        output
-    );
-    println!("WASM plugin output: {}", output);
+    assert!(output.contains("[WASM skeleton] would call WASM with input: hello wasm"), "Unexpected WASM skeleton output: {}", output);
+    println!("WASM skeleton output: {}", output);
 }

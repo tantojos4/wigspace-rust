@@ -1,10 +1,11 @@
-//! Integration test for Rust dylib loader stub
+//! Integration test for Rust dylib plugin loader
+use std::path::PathBuf;
 use wigspace_rust::modules::dynamic_loader::{DynamicModule, RustDylibModule};
 
 #[test]
-fn test_rust_dylib_loader_stub() {
+fn test_load_rust_plugin_example_dylib() {
     // Path to the built .so file
-    let mut so_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let mut so_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     so_path.push("src/modules/rust_plugin_example/target/release/librust_plugin_example.so");
     assert!(
         so_path.exists(),
