@@ -23,9 +23,9 @@
 
 
 ## Phase 2: Modular Architecture (Multi-Language Plugin System)
-- [ ] **Define trait-based handler/middleware API (Handler, Middleware traits)**
-	- Buat trait `Handler` dan `Middleware` untuk extensibility.
-	- _Milestone_: Handler dan middleware bisa plug-and-play.
+- [x] **Define trait-based handler/middleware API (Handler, Middleware traits)**
+	- Trait `Handler` dan `Middleware` sudah diimplementasikan untuk extensibility.
+	- _Milestone tercapai_: Handler dan middleware sudah plug-and-play, siap untuk extensi modular.
 
 - [ ] **Support dynamic module loading: Multi-Language Plugins**
 	- **C ABI `.so` Modules**: Load C/C++/Go/Rust (with extern "C") dynamic libraries via FFI (`libloading`).
