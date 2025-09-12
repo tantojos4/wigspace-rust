@@ -1,3 +1,6 @@
+# Ignore all target folders in all subdirectories
+target/
+**/target/
 /target
 .github/*
 log/

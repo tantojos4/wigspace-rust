@@ -15,7 +15,12 @@ use hyper_util::rt::TokioIo;
 use log::info;
 use logging_middleware::LoggingMiddleware;
 use simple_handler::SimpleHandler;
+mod modules {
+    pub mod dynamic_loader;
+}
+use modules::dynamic_loader::{CAbiModule, DynamicModule};
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 
@@ -74,11 +79,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .add_middleware(logging_middleware)
         .build(handler);
 
+    // --- PLUGIN LOADER ---
+    // Load the plugin_example .so at startup
+    let mut so_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    so_path.push("src/modules/plugin_example/target/release/libplugin_example.so");
+    let plugin: Option<CAbiModule> = if so_path.exists() {
+        // SAFETY: We trust the plugin to follow the C ABI contract
+        match unsafe { CAbiModule::load(&so_path) } {
+            Ok(m) => Some(m),
+            Err(e) => {
+                eprintln!("Failed to load plugin: {}", e);
+                None
+            }
+        }
+    } else {
+        eprintln!("Plugin .so not found: {}", so_path.display());
+        None
+    };
+    let plugin: Arc<Option<CAbiModule>> = Arc::new(plugin);
+
     loop {
         let (stream, _) = listener.accept().await?;
         let io = TokioIo::new(stream);
         let config = config.clone();
         let chain = chain.clone();
+        let plugin = plugin.clone();
         tokio::task::spawn(async move {
             if let Err(err) = http1::Builder::new()
                 .serve_connection(
@@ -86,7 +111,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
                         let config = config.clone();
                         let chain = chain.clone();
-                        async move { chain.handle(req, config).await }
+                        let plugin = plugin.clone();
+                        async move {
+                            // If the request is to /plugin, delegate to the plugin
+                            if req.uri().path() == "/plugin" {
+                                if let Some(plugin) = plugin.as_ref() {
+                                    let input = format!("{} {}", req.method(), req.uri());
+                                    let output = plugin.handle(&input);
+                                    let resp = hyper::Response::new(http_body_util::Full::new(
+                                        hyper::body::Bytes::from(output),
+                                    ));
+                                    Ok::<_, std::convert::Infallible>(resp)
+                                } else {
+                                    let resp = hyper::Response::builder()
+                                        .status(500)
+                                        .body(http_body_util::Full::new(hyper::body::Bytes::from(
+                                            "Plugin not loaded",
+                                        )))
+                                        .unwrap();
+                                    Ok::<_, std::convert::Infallible>(resp)
+                                }
+                            } else {
+                                chain.handle(req, config).await
+                            }
+                        }
                     }),
                 )
                 .await
