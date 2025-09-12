@@ -1,16 +1,32 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 use crate::config::Config;
 use http_body_util::Full;
 use hyper::body::Bytes;
-use hyper::body::Incoming;
 use hyper::{Request, Response};
 use log::info;
 use std::convert::Infallible;
 use std::sync::Arc;
 
-pub async fn handle_request(
-    req: Request<Incoming>,
+pub async fn handle_request<B>(
+    req: Request<B>,
     _config: Arc<Config>,
-) -> Result<Response<Full<Bytes>>, Infallible> {
+) -> Result<Response<Full<Bytes>>, Infallible>
+where
+    B: Send + 'static,
+{
     // Dummy: get remote_addr from header (for real, use hyper::server::conn::AddrStream)
     let remote_addr = req
         .headers()
@@ -32,3 +48,4 @@ pub async fn handle_request(
     );
     Ok(Response::new(Full::new(Bytes::from("Hello, World!"))))
 }
+
