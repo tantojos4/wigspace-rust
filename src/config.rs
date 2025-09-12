@@ -1,3 +1,15 @@
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            address: "127.0.0.1".to_string(),
+            port: 8080,
+            static_dir: None,
+            proxy_pass: None,
+            access_log: None,
+            error_log: None,
+        }
+    }
+}
 use serde::Deserialize;
 use std::{fs, path::Path};
 
