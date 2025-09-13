@@ -6,6 +6,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::convert::Infallible;
 use crate::config::Config;
+use std::sync::RwLock;
 use crate::handler_trait::Handler;
 
 pub struct LoggingMiddleware;
@@ -20,15 +21,17 @@ impl super::middleware_trait::Middleware for LoggingMiddleware {
     fn handle<'a>(
         &'a self,
         req: Request<Incoming>,
-        config: Arc<Config>,
+        config: Arc<RwLock<Config>>,
         next: Arc<dyn Handler + Send + Sync>,
     ) -> Pin<Box<dyn Future<Output = Result<Response<Full<Bytes>>, Infallible>> + Send + 'a>> {
         let next = next.clone();
         let method = req.method().clone();
         let uri = req.uri().clone();
         Box::pin(async move {
-            println!("[LOG] {} {}", method, uri);
-            next.handle(req, config).await
+            let response = next.handle(req, config).await;
+            let status = response.as_ref().map(|r| r.status().as_u16()).unwrap_or(0);
+            log::info!("[access] {} {} -> {}", method, uri, status);
+            response
         })
     }
 }

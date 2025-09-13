@@ -5,3 +5,8 @@ proxy_pass: null
 
 access_log: "log/access.log"
 error_log: "log/error.log"
+# Hot reload test
+# Hot reload test
+# Hot reload test 2
+
+# HOT RELOAD TEST 3 - edited by Copilot

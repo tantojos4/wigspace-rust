@@ -68,9 +68,10 @@
 - [x] **Parse config at startup (address, port, modules, routes, etc)**
 	- Baca config saat startup, gunakan untuk inisialisasi server.
 	- _Milestone_: Server bisa diatur via config file.
-- [ ] **Hot-reload config (notify crate, Arc<RwLock<Config>>)**
+- [x] **Hot-reload config (notify crate, Arc<RwLock<Config>>)**
 	- Implementasi reload config tanpa restart server (pakai crate `notify`, Arc<RwLock<Config>>).
 	- _Milestone_: Config bisa diubah tanpa downtime.
+	- **Sudah diimplementasi:** watcher thread dengan notify, reload otomatis ke Arc<RwLock<Config>> tanpa restart.
 
 	- [ ] **Auto-discovery custom modules directory for plugins (configurable via config.yaml)**
 		- Implementasi agar direktori plugin bisa diatur di config.yaml dan modul-modul di-load otomatis saat startup.

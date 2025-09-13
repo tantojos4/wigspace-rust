@@ -14,12 +14,14 @@ use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
 use log::info;
 use logging_middleware::LoggingMiddleware;
+use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use simple_handler::SimpleHandler;
+use std::sync::RwLock;
 mod modules {
     pub mod dynamic_loader;
 }
 use modules::dynamic_loader::{
-    CAbiModule, DynamicModule, RustDylibModule, ScriptingModule, WasmModule, PluginLifecycle,
+    CAbiModule, DynamicModule, PluginLifecycle, RustDylibModule, ScriptingModule, WasmModule,
 };
 // Load WASM plugin at startup
 use std::net::SocketAddr;
@@ -30,23 +32,25 @@ use tokio::net::TcpListener;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let config = Arc::new(load_config("config.yaml"));
+    // --- LOGGING INIT FIRST ---
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-    let access_log_path = config
-        .access_log
-        .clone()
-        .unwrap_or_else(|| format!("log/{}-access.log", today));
-    let _error_log_path = config
+    // Ensure log directory exists
+    std::fs::create_dir_all("log").expect("Failed to create log directory");
+    let temp_config = load_config("config.yaml");
+    let access_log_spec = FileSpec::default()
+        .directory("log")
+        .basename(format!("access_r{}", today));
+    let _error_log_path = temp_config
         .error_log
         .clone()
-        .unwrap_or_else(|| format!("log/{}-error.log", today));
+        .unwrap_or_else(|| format!("log/error_r{}.log", today));
 
     Logger::try_with_str("info")?
-        .log_to_file(FileSpec::try_from(access_log_path)?)
+        .log_to_file(access_log_spec)
         .write_mode(WriteMode::BufferAndFlush)
         .rotate(
             Criterion::Age(flexi_logger::Age::Day),
-            Naming::Timestamps,
+            Naming::Numbers,
             Cleanup::KeepLogFiles(30),
         )
         .format(|w, now, record| {
@@ -61,18 +65,62 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             )
         })
         .start()?;
-    // TODO: Untuk error log, bisa gunakan log crate dengan target khusus dan Logger kedua jika ingin benar-benar terpisah.
+    // --- END LOGGING INIT ---
 
-    // config sudah di-load di atas
-    info!("Loaded config: {:?}", config);
-    if let Some(ref dir) = config.static_dir {
-        info!("Static files will be served from: {}", dir);
-    }
-    if let Some(ref proxy) = config.proxy_pass {
-        info!("Proxying requests to: {}", proxy);
+    let config = Arc::new(RwLock::new(temp_config));
+
+    {
+        let config_read = config.read().unwrap();
+        info!("Loaded config: {:?}", *config_read);
+        if let Some(ref dir) = config_read.static_dir {
+            info!("Static files will be served from: {}", dir);
+        }
+        if let Some(ref proxy) = config_read.proxy_pass {
+            info!("Proxying requests to: {}", proxy);
+        }
     }
 
-    let addr = SocketAddr::new(config.address.parse()?, config.port);
+    // --- HOT-RELOAD CONFIG ---
+    let config_watcher = config.clone();
+    std::thread::spawn(move || {
+        log::info!("[hot-reload] watcher thread started");
+        let mut watcher = RecommendedWatcher::new(
+            move |res: Result<notify::Event, notify::Error>| {
+                match res {
+                    Ok(event) => {
+                        log::info!(
+                            "[hot-reload] notify event: kind={:?} paths={:?}",
+                            event.kind,
+                            event.paths
+                        );
+                        // Reload config on any event for now
+                        let new_config = load_config("config.yaml");
+                        let mut w = config_watcher.write().unwrap();
+                        *w = new_config;
+                        log::info!("[hot-reload] config.yaml reloaded");
+                    }
+                    Err(e) => {
+                        log::error!("[hot-reload] Watch error: {:?}", e);
+                    }
+                }
+            },
+            notify::Config::default(),
+        )
+        .unwrap();
+        watcher
+            .watch(
+                std::path::Path::new("config.yaml"),
+                RecursiveMode::Recursive,
+            )
+            .unwrap();
+        // Keep thread alive
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(3600));
+        }
+    });
+
+    let config_read = config.read().unwrap();
+    let addr = SocketAddr::new(config_read.address.parse()?, config_read.port);
     let listener = TcpListener::bind(addr).await?;
     info!("Server running on http://{}", addr);
 
@@ -151,7 +199,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let chain = chain.clone();
         let plugin = plugin.clone();
         let wasm_plugin_outer = wasm_plugin.clone();
-    let rust_plugin_outer = rust_plugin.clone();
+        let rust_plugin_outer = rust_plugin.clone();
         let lua_plugin = lua_plugin.clone();
         tokio::task::spawn(async move {
             if let Err(err) = http1::Builder::new()
@@ -221,7 +269,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                 }
                             // If the request is to /rust-plugin, delegate to the Rust dylib plugin
                             } else if req.uri().path() == "/rust-plugin" {
-                                let mut guard = rust_plugin.lock().unwrap();
+                                let guard = rust_plugin.lock().unwrap();
                                 if let Some(rust_plugin) = guard.as_ref() {
                                     let input = format!("{} {}", req.method(), req.uri());
                                     let output = rust_plugin.handle(&input);
@@ -290,7 +338,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                     Ok::<_, std::convert::Infallible>(resp)
                                 }
                             } else {
-                                chain.handle(req, config).await
+                                // Always read latest config
+                                let config_arc = config.clone();
+                                chain.handle(req, config_arc).await
                             }
                         }
                     }),

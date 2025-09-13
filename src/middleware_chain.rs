@@ -30,11 +30,12 @@ struct MiddlewareHandlerWrapper {
     next: Arc<dyn Handler>,
 }
 
+use std::sync::RwLock;
 impl Handler for MiddlewareHandlerWrapper {
     fn handle<'a>(
         &'a self,
         req: hyper::Request<hyper::body::Incoming>,
-        config: std::sync::Arc<crate::config::Config>,
+        config: std::sync::Arc<std::sync::RwLock<crate::config::Config>>,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<hyper::Response<http_body_util::Full<hyper::body::Bytes>>, std::convert::Infallible>> + Send + 'a>> {
         self.mw.handle(req, config, self.next.clone())
     }

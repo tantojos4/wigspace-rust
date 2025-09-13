@@ -1,0 +1,37 @@
+warning: unused import: `std::sync::RwLock`
+  --> src/middleware_chain.rs:33:5
+   |
+33 | use std::sync::RwLock;
+   |     ^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning[E0133]: call to unsafe function `libloading::Library::get` is unsafe and requires unsafe block
+  --> src/modules/dynamic_loader.rs:82:13
+   |
+82 |             lib.get(b"plugin_init")
+   |             ^^^^^^^^^^^^^^^^^^^^^^^ call to unsafe function
+   |
+   = note: for more information, see <https://doc.rust-lang.org/nightly/edition-guide/rust-2024/unsafe-op-in-unsafe-fn.html>
+   = note: consult the function's documentation for information on how to avoid undefined behavior
+note: an unsafe function restricts its caller, but its body is safe by default
+  --> src/modules/dynamic_loader.rs:73:5
+   |
+73 |     pub unsafe fn load<P: AsRef<OsStr>>(path: P) -> Result<Self, libloading::Error> {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = note: `#[warn(unsafe_op_in_unsafe_fn)]` on by default
+
+warning[E0133]: call to unsafe function `libloading::Library::get` is unsafe and requires unsafe block
+  --> src/modules/dynamic_loader.rs:87:27
+   |
+87 |         let shutdown_fn = lib.get(b"plugin_shutdown").ok().map(
+   |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^ call to unsafe function
+   |
+   = note: for more information, see <https://doc.rust-lang.org/nightly/edition-guide/rust-2024/unsafe-op-in-unsafe-fn.html>
+   = note: consult the function's documentation for information on how to avoid undefined behavior
+
+For more information about this error, try `rustc --explain E0133`.
+warning: `wigspace-rust` (lib) generated 3 warnings (run `cargo fix --lib -p wigspace-rust` to apply 2 suggestions)
+warning: `wigspace-rust` (bin "wigspace-rust") generated 3 warnings (3 duplicates)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.55s
+     Running `target/debug/wigspace-rust`

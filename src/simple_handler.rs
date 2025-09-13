@@ -2,6 +2,7 @@ pub fn simple_handler_response(method: &hyper::Method, uri: &hyper::Uri) -> Stri
     format!("SimpleHandler: {} {}", method, uri)
 }
 use crate::config::Config;
+use std::sync::RwLock;
 use crate::handler_trait::Handler;
 use http_body_util::Full;
 use hyper::body::{Bytes, Incoming};
@@ -19,11 +20,16 @@ impl Handler for SimpleHandler {
     fn handle<'a>(
         &'a self,
         req: Request<Incoming>,
-        config: Arc<Config>,
+        config: Arc<RwLock<Config>>,
     ) -> Pin<Box<dyn Future<Output = Result<Response<Full<Bytes>>, Infallible>> + Send + 'a>> {
         Box::pin(async move {
+            // Clone needed config fields before any await
+            let static_dir = {
+                let config_read = config.read().unwrap();
+                config_read.static_dir.clone()
+            };
             // Serve static files if static_dir is set
-            if let Some(ref static_dir) = config.static_dir {
+            if let Some(ref static_dir) = static_dir {
                 let mut path = req.uri().path().trim_start_matches('/').to_string();
                 if path.is_empty() {
                     path = "index.html".to_string();
