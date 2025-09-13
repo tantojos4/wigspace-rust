@@ -14,7 +14,7 @@ use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
 use log::info;
 use logging_middleware::LoggingMiddleware;
-use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use simple_handler::SimpleHandler;
 use std::sync::RwLock;
 mod modules {
@@ -23,6 +23,13 @@ mod modules {
 use modules::dynamic_loader::{
     CAbiModule, DynamicModule, PluginLifecycle, RustDylibModule, ScriptingModule, WasmModule,
 };
+
+#[derive(Clone)]
+enum PluginInstance {
+    CAbi(Arc<CAbiModule>),
+    Lua(Arc<ScriptingModule>),
+    Wasm(Arc<WasmModule>),
+}
 // Load WASM plugin at startup
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -78,6 +85,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if let Some(ref proxy) = config_read.proxy_pass {
             info!("Proxying requests to: {}", proxy);
         }
+        if let Some(ref plugins_dir) = config_read.plugins_dir {
+            info!("Plugins directory: {}", plugins_dir);
+        }
     }
 
     // --- HOT-RELOAD CONFIG ---
@@ -131,48 +141,61 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .add_middleware(logging_middleware)
         .build(handler);
 
-    // --- PLUGIN LOADERS ---
-    // Load the plugin_example .so at startup
-    let mut so_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    so_path.push("src/modules/plugin_example/target/release/libplugin_example.so");
-    let plugin: Option<CAbiModule> = if so_path.exists() {
-        // SAFETY: We trust the plugin to follow the C ABI contract
-        match unsafe { CAbiModule::load(&so_path) } {
-            Ok(m) => Some(m),
-            Err(e) => {
-                eprintln!("Failed to load plugin: {}", e);
-                None
+    // --- DYNAMIC PLUGIN LOADER & ENDPOINT MAPPING ---
+    use std::collections::HashMap;
+    let plugins_dir = config_read.plugins_dir.clone().unwrap_or_else(|| "./plugins".to_string());
+    let mut endpoint_plugins: HashMap<String, PluginInstance> = HashMap::new();
+    let mut loaded_plugins_log = Vec::new();
+    if let Some(ref mapping) = config_read.plugin_endpoints {
+        for (endpoint, filename) in mapping.iter() {
+            let path = PathBuf::from(&plugins_dir).join(filename);
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            match ext {
+                "so" => {
+                    match unsafe { CAbiModule::load(&path) } {
+                        Ok(m) => {
+                            endpoint_plugins.insert(endpoint.clone(), PluginInstance::CAbi(Arc::new(m)));
+                            loaded_plugins_log.push(format!("{} -> {} [CAbi]", endpoint, filename));
+                        },
+                        Err(e) => {
+                            eprintln!("Failed to load C ABI plugin {}: {}", path.display(), e);
+                        }
+                    }
+                },
+                "lua" => {
+                    match ScriptingModule::load(&path) {
+                        Ok(m) => {
+                            endpoint_plugins.insert(endpoint.clone(), PluginInstance::Lua(Arc::new(m)));
+                            loaded_plugins_log.push(format!("{} -> {} [Lua]", endpoint, filename));
+                        },
+                        Err(e) => {
+                            eprintln!("Failed to load Lua plugin {}: {}", path.display(), e);
+                        }
+                    }
+                },
+                "wasm" => {
+                    match WasmModule::load(&path) {
+                        Ok(m) => {
+                            endpoint_plugins.insert(endpoint.clone(), PluginInstance::Wasm(Arc::new(m)));
+                            loaded_plugins_log.push(format!("{} -> {} [WASM]", endpoint, filename));
+                        },
+                        Err(e) => {
+                            eprintln!("Failed to load WASM plugin {}: {}", path.display(), e);
+                        }
+                    }
+                },
+                _ => {
+                    eprintln!("Unknown plugin extension for {}: {}", endpoint, filename);
+                }
             }
         }
+    }
+    if !loaded_plugins_log.is_empty() {
+        info!("Loaded plugins: {:?}", loaded_plugins_log);
     } else {
-        eprintln!("Plugin .so not found: {}", so_path.display());
-        None
-    };
-    let plugin: Arc<Option<CAbiModule>> = Arc::new(plugin);
-
-    // Load Lua plugin at startup
-    let mut lua_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    lua_path.push("src/modules/lua_plugin_example/hello.lua");
-    let lua_plugin: Option<ScriptingModule> = match ScriptingModule::load(&lua_path) {
-        Ok(m) => Some(m),
-        Err(e) => {
-            eprintln!("Failed to load Lua plugin: {}", e);
-            None
-        }
-    };
-    let lua_plugin: Arc<Option<ScriptingModule>> = Arc::new(lua_plugin);
-
-    // Load WASM plugin at startup
-    let mut wasm_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    wasm_path.push("src/modules/wasm_plugin_example/hello.wasm");
-    let wasm_plugin: Option<WasmModule> = match WasmModule::load(&wasm_path) {
-        Ok(m) => Some(m),
-        Err(e) => {
-            eprintln!("Failed to load WASM plugin: {}", e);
-            None
-        }
-    };
-    let wasm_plugin: Arc<Option<WasmModule>> = Arc::new(wasm_plugin);
+        info!("No plugins loaded from mapping");
+    }
+    let endpoint_plugins = Arc::new(endpoint_plugins);
 
     // Load Rust dylib plugin at startup
     let mut rust_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -197,10 +220,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let io = TokioIo::new(stream);
         let config = config.clone();
         let chain = chain.clone();
-        let plugin = plugin.clone();
-        let wasm_plugin_outer = wasm_plugin.clone();
+        let endpoint_plugins = endpoint_plugins.clone();
         let rust_plugin_outer = rust_plugin.clone();
-        let lua_plugin = lua_plugin.clone();
         tokio::task::spawn(async move {
             if let Err(err) = http1::Builder::new()
                 .serve_connection(
@@ -208,85 +229,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
                         let config = config.clone();
                         let chain = chain.clone();
-                        let plugin = plugin.clone();
-                        let lua_plugin = lua_plugin.clone();
-                        let wasm_plugin = wasm_plugin_outer.clone();
+                        let endpoint_plugins = endpoint_plugins.clone();
                         let rust_plugin = rust_plugin_outer.clone();
                         async move {
-                            // If the request is to /plugin, delegate to the C ABI plugin
-                            if req.uri().path() == "/plugin" {
-                                if let Some(plugin) = plugin.as_ref() {
-                                    let input = format!("{} {}", req.method(), req.uri());
-                                    let output = plugin.handle(&input);
-                                    let resp = hyper::Response::new(http_body_util::Full::new(
-                                        hyper::body::Bytes::from(output),
-                                    ));
-                                    Ok::<_, std::convert::Infallible>(resp)
-                                } else {
-                                    let resp = hyper::Response::builder()
-                                        .status(500)
-                                        .body(http_body_util::Full::new(hyper::body::Bytes::from(
-                                            "Plugin not loaded",
-                                        )))
-                                        .unwrap();
-                                    Ok::<_, std::convert::Infallible>(resp)
-                                }
-                            // If the request is to /lua-plugin, delegate to the Lua plugin
-                            } else if req.uri().path() == "/lua-plugin" {
-                                if let Some(lua_plugin) = lua_plugin.as_ref() {
-                                    let input = format!("{} {}", req.method(), req.uri());
-                                    let output = lua_plugin.handle(&input);
-                                    let resp = hyper::Response::new(http_body_util::Full::new(
-                                        hyper::body::Bytes::from(output),
-                                    ));
-                                    Ok::<_, std::convert::Infallible>(resp)
-                                } else {
-                                    let resp = hyper::Response::builder()
-                                        .status(500)
-                                        .body(http_body_util::Full::new(hyper::body::Bytes::from(
-                                            "Lua plugin not loaded",
-                                        )))
-                                        .unwrap();
-                                    Ok::<_, std::convert::Infallible>(resp)
-                                }
-                            // If the request is to /wasm-plugin, delegate to the WASM plugin
-                            } else if req.uri().path() == "/wasm-plugin" {
-                                if let Some(wasm_plugin) = wasm_plugin.as_ref() {
-                                    let input = format!("{} {}", req.method(), req.uri());
-                                    let output = wasm_plugin.handle(&input);
-                                    let resp = hyper::Response::new(http_body_util::Full::new(
-                                        hyper::body::Bytes::from(output),
-                                    ));
-                                    Ok::<_, std::convert::Infallible>(resp)
-                                } else {
-                                    let resp = hyper::Response::builder()
-                                        .status(500)
-                                        .body(http_body_util::Full::new(hyper::body::Bytes::from(
-                                            "WASM plugin not loaded",
-                                        )))
-                                        .unwrap();
-                                    Ok::<_, std::convert::Infallible>(resp)
-                                }
-                            // If the request is to /rust-plugin, delegate to the Rust dylib plugin
-                            } else if req.uri().path() == "/rust-plugin" {
-                                let guard = rust_plugin.lock().unwrap();
-                                if let Some(rust_plugin) = guard.as_ref() {
-                                    let input = format!("{} {}", req.method(), req.uri());
-                                    let output = rust_plugin.handle(&input);
-                                    let resp = hyper::Response::new(http_body_util::Full::new(
-                                        hyper::body::Bytes::from(output),
-                                    ));
-                                    Ok::<_, std::convert::Infallible>(resp)
-                                } else {
-                                    let resp = hyper::Response::builder()
-                                        .status(500)
-                                        .body(http_body_util::Full::new(hyper::body::Bytes::from(
-                                            "Rust dylib plugin not loaded",
-                                        )))
-                                        .unwrap();
-                                    Ok::<_, std::convert::Infallible>(resp)
-                                }
-                            } else if req.uri().path() == "/reload-rust-plugin" {
+                            let path = req.uri().path();
+                            if let Some(plugin) = endpoint_plugins.get(path) {
+                                let input = format!("{} {}", req.method(), req.uri());
+                                let resp = match plugin {
+                                    PluginInstance::CAbi(p) => {
+                                        let output = p.handle(&input);
+                                        hyper::Response::new(http_body_util::Full::new(hyper::body::Bytes::from(output)))
+                                    },
+                                    PluginInstance::Lua(p) => {
+                                        let output = p.handle(&input);
+                                        hyper::Response::new(http_body_util::Full::new(hyper::body::Bytes::from(output)))
+                                    },
+                                    PluginInstance::Wasm(p) => {
+                                        let output = p.handle(&input);
+                                        hyper::Response::new(http_body_util::Full::new(hyper::body::Bytes::from(output)))
+                                    },
+                                };
+                                Ok::<_, std::convert::Infallible>(resp)
+                            } else if path == "/reload-rust-plugin" {
                                 let mut guard = rust_plugin.lock().unwrap();
                                 if let Some(rust_plugin) = guard.as_mut() {
                                     let msg = rust_plugin.reload();
@@ -311,7 +275,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                         }
                                     }
                                 }
-                            } else if req.uri().path() == "/init-rust-plugin" {
+                            } else if path == "/init-rust-plugin" {
                                 let mut guard = rust_plugin.lock().unwrap();
                                 if let Some(rust_plugin) = guard.as_mut() {
                                     let msg = rust_plugin.init();
@@ -324,7 +288,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                         .unwrap();
                                     Ok::<_, std::convert::Infallible>(resp)
                                 }
-                            } else if req.uri().path() == "/shutdown-rust-plugin" {
+                            } else if path == "/shutdown-rust-plugin" {
                                 let mut guard = rust_plugin.lock().unwrap();
                                 if let Some(rust_plugin) = guard.as_mut() {
                                     let msg = rust_plugin.shutdown();

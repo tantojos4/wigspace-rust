@@ -1,12 +1,7 @@
 address: "127.0.0.1"
 port: 8080
-static_dir: "./public"
-proxy_pass: null
-
-access_log: "log/access.log"
-error_log: "log/error.log"
-# Hot reload test
-# Hot reload test
-# Hot reload test 2
-
-# HOT RELOAD TEST 3 - edited by Copilot
+plugins_dir: "./plugins"
+plugin_endpoints:
+  /plugin: libplugin_example.so
+  /lua-plugin: hello.lua
+  /wasm-plugin: hello.wasm

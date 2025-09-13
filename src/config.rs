@@ -7,6 +7,8 @@ impl Default for Config {
             proxy_pass: None,
             access_log: None,
             error_log: None,
+            plugins_dir: Some("plugins".to_string()),
+            plugin_endpoints: None,
         }
     }
 }
@@ -21,6 +23,8 @@ pub struct Config {
     pub proxy_pass: Option<String>,
     pub access_log: Option<String>,
     pub error_log: Option<String>,
+    pub plugins_dir: Option<String>,
+    pub plugin_endpoints: Option<std::collections::HashMap<String, String>>,
 }
 
 pub fn load_config<P: AsRef<Path>>(path: P) -> Config {

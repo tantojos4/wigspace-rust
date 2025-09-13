@@ -1,13 +1,13 @@
-use hyper::{Request, Response};
+use crate::config::Config;
+use crate::handler_trait::Handler;
 use http_body_util::Full;
 use hyper::body::{Bytes, Incoming};
+use hyper::{Request, Response};
+use std::convert::Infallible;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::convert::Infallible;
-use crate::config::Config;
 use std::sync::RwLock;
-use crate::handler_trait::Handler;
 
 pub struct LoggingMiddleware;
 
