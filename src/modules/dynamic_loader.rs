@@ -1,9 +1,17 @@
-//! Dynamic module loader for multi-language plugins (C ABI, Rust dylib, WASM, scripting)
-//! - C ABI: Loads `.so` modules via FFI (libloading)
-//! - Rust dylib: Loads Rust plugins as `cdylib`/`dylib`
-//! - WASM: Loads WASM modules via wasmtime/wasmer
-//! - Scripting: Loads Lua, JS, Python, etc. via embedded engines
+use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::path::PathBuf;
 
+/// Trait untuk lifecycle management plugin
+pub trait PluginLifecycle {
+    fn init(&mut self) -> String;
+    fn shutdown(&mut self) -> String;
+    fn reload(&mut self) -> String;
+}
+/// Dynamic module loader for multi-language plugins (C ABI, Rust dylib, WASM, scripting)
+/// - C ABI: Loads `.so` modules via FFI (libloading)
+/// - Rust dylib: Loads Rust plugins as `cdylib`/`dylib`
+/// - WASM: Loads WASM modules via wasmtime/wasmer
+/// - Scripting: Loads Lua, JS, Python, etc. via embedded engines
 use libloading::{Library, Symbol};
 use std::ffi::OsStr;
 use std::ffi::c_void;
@@ -54,30 +62,92 @@ pub struct PluginVTable {
 }
 
 pub struct RustDylibModule {
+    path: PathBuf,
     _lib: Library,
     vtable: &'static PluginVTable,
+    init_fn: Option<unsafe extern "C" fn() -> i32>,
+    shutdown_fn: Option<unsafe extern "C" fn() -> i32>,
 }
 
 impl RustDylibModule {
     pub unsafe fn load<P: AsRef<OsStr>>(path: P) -> Result<Self, libloading::Error> {
-        let lib = unsafe { Library::new(path)? };
+        let pathbuf = PathBuf::from(path.as_ref());
+        let lib = unsafe { Library::new(&pathbuf)? };
         let vtable_sym: Symbol<unsafe extern "C" fn() -> *const PluginVTable> =
             unsafe { lib.get(b"get_plugin_vtable")? };
         let vtable = unsafe { vtable_sym() };
         let vtable: &'static PluginVTable = unsafe { std::mem::transmute(vtable) };
-        Ok(RustDylibModule { _lib: lib, vtable })
+        // Optional: init/shutdown
+        let init_fn =
+            lib.get(b"plugin_init")
+                .ok()
+                .map(|sym: Symbol<unsafe extern "C" fn() -> i32>| unsafe {
+                    std::mem::transmute::<_, unsafe extern "C" fn() -> i32>(sym)
+                });
+        let shutdown_fn = lib.get(b"plugin_shutdown").ok().map(
+            |sym: Symbol<unsafe extern "C" fn() -> i32>| unsafe {
+                std::mem::transmute::<_, unsafe extern "C" fn() -> i32>(sym)
+            },
+        );
+        Ok(RustDylibModule {
+            path: pathbuf,
+            _lib: lib,
+            vtable,
+            init_fn,
+            shutdown_fn,
+        })
     }
 }
 
 impl DynamicModule for RustDylibModule {
     fn handle(&self, input: &str) -> String {
         let c_input = std::ffi::CString::new(input).unwrap();
-        unsafe {
+        let result = catch_unwind(AssertUnwindSafe(|| unsafe {
             let ptr = (self.vtable.handle)(c_input.as_ptr());
             let cstr = std::ffi::CStr::from_ptr(ptr);
             let result = cstr.to_string_lossy().into_owned();
-            // Free the string if the module provides a free function (optional)
             result
+        }));
+        match result {
+            Ok(s) => s,
+            Err(_) => "[rust_plugin] panic in plugin".to_string(),
+        }
+    }
+}
+
+impl PluginLifecycle for RustDylibModule {
+    fn init(&mut self) -> String {
+        if let Some(f) = self.init_fn {
+            let res = catch_unwind(AssertUnwindSafe(|| unsafe { f() }));
+            match res {
+                Ok(code) => format!("[rust_plugin] init: {}", code),
+                Err(_) => "[rust_plugin] panic in init".to_string(),
+            }
+        } else {
+            "[rust_plugin] no init fn".to_string()
+        }
+    }
+    fn shutdown(&mut self) -> String {
+        if let Some(f) = self.shutdown_fn {
+            let res = catch_unwind(AssertUnwindSafe(|| unsafe { f() }));
+            match res {
+                Ok(code) => format!("[rust_plugin] shutdown: {}", code),
+                Err(_) => "[rust_plugin] panic in shutdown".to_string(),
+            }
+        } else {
+            "[rust_plugin] no shutdown fn".to_string()
+        }
+    }
+    fn reload(&mut self) -> String {
+        // Drop current lib, reload from path
+        let path = self.path.clone();
+        // Safety: must ensure no outstanding references
+        match unsafe { RustDylibModule::load(&path) } {
+            Ok(new_mod) => {
+                *self = new_mod;
+                "[rust_plugin] reload: success".to_string()
+            }
+            Err(e) => format!("[rust_plugin] reload error: {}", e),
         }
     }
 }
@@ -107,11 +177,13 @@ impl WasmModule {
 
 impl DynamicModule for WasmModule {
     fn handle(&self, input: &str) -> String {
-        use wasmtime::{Store, Val, Memory};
+        use wasmtime::{Memory, Store, Val};
         let mut store = Store::new(&self.engine, ());
         let memory = Memory::new(&mut store, self.memory_ty.clone()).unwrap();
         let mut linker = self.linker.clone();
-        linker.define(&mut store, "env", "memory", memory.clone()).unwrap();
+        linker
+            .define(&mut store, "env", "memory", memory.clone())
+            .unwrap();
         let instance = match linker.instantiate(&mut store, &self.module) {
             Ok(i) => i,
             Err(e) => return format!("[WASM error] instantiation failed: {}", e),
@@ -149,7 +221,9 @@ impl DynamicModule for WasmModule {
                 Some(b) => *b,
                 None => break,
             };
-            if byte == 0 { break; }
+            if byte == 0 {
+                break;
+            }
             buf.push(byte);
             cur += 1;
         }
@@ -171,7 +245,7 @@ impl ScriptingModule {
 
 impl DynamicModule for ScriptingModule {
     fn handle(&self, input: &str) -> String {
-    use rlua::Lua;
+        use rlua::Lua;
         let lua = Lua::new();
         let script = &self.script;
         if let Err(e) = lua.load(script).exec() {

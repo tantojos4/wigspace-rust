@@ -1,15 +1,15 @@
 pub fn simple_handler_response(method: &hyper::Method, uri: &hyper::Uri) -> String {
     format!("SimpleHandler: {} {}", method, uri)
 }
-use crate::handler_trait::Handler;
 use crate::config::Config;
-use hyper::{Request, Response, StatusCode};
+use crate::handler_trait::Handler;
 use http_body_util::Full;
 use hyper::body::{Bytes, Incoming};
+use hyper::{Request, Response, StatusCode};
+use std::convert::Infallible;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::convert::Infallible;
 use tokio::fs;
 use tokio::io::AsyncReadExt;
 
@@ -25,7 +25,9 @@ impl Handler for SimpleHandler {
             // Serve static files if static_dir is set
             if let Some(ref static_dir) = config.static_dir {
                 let mut path = req.uri().path().trim_start_matches('/').to_string();
-                if path.is_empty() { path = "index.html".to_string(); }
+                if path.is_empty() {
+                    path = "index.html".to_string();
+                }
                 let file_path = std::path::Path::new(static_dir).join(&path);
                 if let Ok(mut file) = fs::File::open(&file_path).await {
                     let mut buf = Vec::new();

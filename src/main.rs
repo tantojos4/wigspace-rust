@@ -18,10 +18,14 @@ use simple_handler::SimpleHandler;
 mod modules {
     pub mod dynamic_loader;
 }
-use modules::dynamic_loader::{CAbiModule, ScriptingModule, DynamicModule};
+use modules::dynamic_loader::{
+    CAbiModule, DynamicModule, RustDylibModule, ScriptingModule, WasmModule, PluginLifecycle,
+};
+// Load WASM plugin at startup
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::Mutex;
 use tokio::net::TcpListener;
 
 #[tokio::main]
@@ -110,12 +114,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     };
     let lua_plugin: Arc<Option<ScriptingModule>> = Arc::new(lua_plugin);
 
+    // Load WASM plugin at startup
+    let mut wasm_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    wasm_path.push("src/modules/wasm_plugin_example/hello.wasm");
+    let wasm_plugin: Option<WasmModule> = match WasmModule::load(&wasm_path) {
+        Ok(m) => Some(m),
+        Err(e) => {
+            eprintln!("Failed to load WASM plugin: {}", e);
+            None
+        }
+    };
+    let wasm_plugin: Arc<Option<WasmModule>> = Arc::new(wasm_plugin);
+
+    // Load Rust dylib plugin at startup
+    let mut rust_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    rust_path.push("src/modules/rust_plugin_example/target/release/librust_plugin_example.so");
+    let rust_plugin: Arc<Mutex<Option<RustDylibModule>>> = Arc::new(Mutex::new(unsafe {
+        if rust_path.exists() {
+            match RustDylibModule::load(&rust_path) {
+                Ok(m) => Some(m),
+                Err(e) => {
+                    eprintln!("Failed to load Rust dylib plugin: {}", e);
+                    None
+                }
+            }
+        } else {
+            eprintln!("Rust dylib plugin not found: {}", rust_path.display());
+            None
+        }
+    }));
+
     loop {
         let (stream, _) = listener.accept().await?;
         let io = TokioIo::new(stream);
         let config = config.clone();
         let chain = chain.clone();
         let plugin = plugin.clone();
+        let wasm_plugin_outer = wasm_plugin.clone();
+    let rust_plugin_outer = rust_plugin.clone();
         let lua_plugin = lua_plugin.clone();
         tokio::task::spawn(async move {
             if let Err(err) = http1::Builder::new()
@@ -126,6 +162,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         let chain = chain.clone();
                         let plugin = plugin.clone();
                         let lua_plugin = lua_plugin.clone();
+                        let wasm_plugin = wasm_plugin_outer.clone();
+                        let rust_plugin = rust_plugin_outer.clone();
                         async move {
                             // If the request is to /plugin, delegate to the C ABI plugin
                             if req.uri().path() == "/plugin" {
@@ -160,6 +198,94 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                         .body(http_body_util::Full::new(hyper::body::Bytes::from(
                                             "Lua plugin not loaded",
                                         )))
+                                        .unwrap();
+                                    Ok::<_, std::convert::Infallible>(resp)
+                                }
+                            // If the request is to /wasm-plugin, delegate to the WASM plugin
+                            } else if req.uri().path() == "/wasm-plugin" {
+                                if let Some(wasm_plugin) = wasm_plugin.as_ref() {
+                                    let input = format!("{} {}", req.method(), req.uri());
+                                    let output = wasm_plugin.handle(&input);
+                                    let resp = hyper::Response::new(http_body_util::Full::new(
+                                        hyper::body::Bytes::from(output),
+                                    ));
+                                    Ok::<_, std::convert::Infallible>(resp)
+                                } else {
+                                    let resp = hyper::Response::builder()
+                                        .status(500)
+                                        .body(http_body_util::Full::new(hyper::body::Bytes::from(
+                                            "WASM plugin not loaded",
+                                        )))
+                                        .unwrap();
+                                    Ok::<_, std::convert::Infallible>(resp)
+                                }
+                            // If the request is to /rust-plugin, delegate to the Rust dylib plugin
+                            } else if req.uri().path() == "/rust-plugin" {
+                                let mut guard = rust_plugin.lock().unwrap();
+                                if let Some(rust_plugin) = guard.as_ref() {
+                                    let input = format!("{} {}", req.method(), req.uri());
+                                    let output = rust_plugin.handle(&input);
+                                    let resp = hyper::Response::new(http_body_util::Full::new(
+                                        hyper::body::Bytes::from(output),
+                                    ));
+                                    Ok::<_, std::convert::Infallible>(resp)
+                                } else {
+                                    let resp = hyper::Response::builder()
+                                        .status(500)
+                                        .body(http_body_util::Full::new(hyper::body::Bytes::from(
+                                            "Rust dylib plugin not loaded",
+                                        )))
+                                        .unwrap();
+                                    Ok::<_, std::convert::Infallible>(resp)
+                                }
+                            } else if req.uri().path() == "/reload-rust-plugin" {
+                                let mut guard = rust_plugin.lock().unwrap();
+                                if let Some(rust_plugin) = guard.as_mut() {
+                                    let msg = rust_plugin.reload();
+                                    let resp = hyper::Response::new(http_body_util::Full::new(hyper::body::Bytes::from(msg)));
+                                    Ok::<_, std::convert::Infallible>(resp)
+                                } else {
+                                    // Try load if None
+                                    let mut rust_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+                                    rust_path.push("src/modules/rust_plugin_example/target/release/librust_plugin_example.so");
+                                    match unsafe { RustDylibModule::load(&rust_path) } {
+                                        Ok(new_mod) => {
+                                            *guard = Some(new_mod);
+                                            let resp = hyper::Response::new(http_body_util::Full::new(hyper::body::Bytes::from("[rust_plugin] loaded")));
+                                            Ok::<_, std::convert::Infallible>(resp)
+                                        },
+                                        Err(e) => {
+                                            let resp = hyper::Response::builder()
+                                                .status(500)
+                                                .body(http_body_util::Full::new(hyper::body::Bytes::from(format!("[rust_plugin] reload error: {}", e))))
+                                                .unwrap();
+                                            Ok::<_, std::convert::Infallible>(resp)
+                                        }
+                                    }
+                                }
+                            } else if req.uri().path() == "/init-rust-plugin" {
+                                let mut guard = rust_plugin.lock().unwrap();
+                                if let Some(rust_plugin) = guard.as_mut() {
+                                    let msg = rust_plugin.init();
+                                    let resp = hyper::Response::new(http_body_util::Full::new(hyper::body::Bytes::from(msg)));
+                                    Ok::<_, std::convert::Infallible>(resp)
+                                } else {
+                                    let resp = hyper::Response::builder()
+                                        .status(500)
+                                        .body(http_body_util::Full::new(hyper::body::Bytes::from("Rust dylib plugin not loaded")))
+                                        .unwrap();
+                                    Ok::<_, std::convert::Infallible>(resp)
+                                }
+                            } else if req.uri().path() == "/shutdown-rust-plugin" {
+                                let mut guard = rust_plugin.lock().unwrap();
+                                if let Some(rust_plugin) = guard.as_mut() {
+                                    let msg = rust_plugin.shutdown();
+                                    let resp = hyper::Response::new(http_body_util::Full::new(hyper::body::Bytes::from(msg)));
+                                    Ok::<_, std::convert::Infallible>(resp)
+                                } else {
+                                    let resp = hyper::Response::builder()
+                                        .status(500)
+                                        .body(http_body_util::Full::new(hyper::body::Bytes::from("Rust dylib plugin not loaded")))
                                         .unwrap();
                                     Ok::<_, std::convert::Infallible>(resp)
                                 }

@@ -1,7 +1,5 @@
 # 🦀 Roadmap: Building an Nginx-like Modular HTTP Server in Rust
 
----
-
 ## Phase 1: Core Async HTTP Server
 - [x] **Initialize async TCP/HTTP server (tokio, hyper)**
 	- Setup `tokio::main` runtime, bind TCP listener, dan gunakan `hyper` untuk HTTP layer.
@@ -32,20 +30,22 @@
 		 - _Milestone tercapai_: Server bisa load & invoke plugin C ABI `.so` secara dinamis (sudah teruji end-to-end).
 	 - **Rust Dynamic Libraries**: Loader stub tersedia, siap diimplementasikan untuk plugin Rust native, idiomatik, dan aman.
 		 - _Milestone_: Loader stub ada, tinggal implementasi real plugin Rust.
+	 - **[NEW] Advanced Rust dylib plugin features: lifecycle, reload, sandboxing, etc.**
+		 - _Milestone_: Implementasi lifecycle management (init, shutdown, reload), sandboxing, dan fitur advanced lain untuk plugin Rust dylib.
 	 - **WASM Modules**: Loader stub tersedia, siap diintegrasikan dengan runtime WASM (`wasmtime`, `wasmer`).
 		 - _Milestone_: Loader stub ada, integrasi runtime WASM berikutnya.
 	 - **Scripting Modules**: Loader stub tersedia, siap dihubungkan ke engine scripting (Lua, JS, Python, dll).
 		 - _Milestone_: Loader stub ada, tinggal integrasi engine scripting.
 
-- [ ] **Support static module registration (compile-time, crate features)**
+- [x] **Support static module registration (compile-time, crate features)**
 	- Modul juga bisa di-link statis (fitur compile-time, crate features).
 	- _Milestone_: Modul core selalu aktif tanpa dynamic loading.
 
-- [ ] **Example modules for each type**
+- [x] **Example modules for each type**
 	- Modul contoh: logging request (C ABI), custom response (Rust), WASM hello world, Lua/JS script handler.
 	- _Milestone_: Ada minimal 1 modul eksternal untuk tiap tipe (C ABI, Rust, WASM, scripting).
 
-- [ ] **Module lifecycle management (init, shutdown, reload)**
+- [x] **Module lifecycle management (init, shutdown, reload)**
 	- Pastikan modul bisa di-init, shutdown, dan reload dengan aman (termasuk WASM/scripting sandboxing).
 	- _Milestone_: Modul bisa diaktif/nonaktifkan tanpa crash.
 
@@ -61,9 +61,6 @@
 | Scripting           | Lua, JS, Python, dsb | Dinamis, mudah diubah     | Modul cepat, scripting admin  |
 
 ---
-
----
-
 ## Phase 3: Configuration System
 - [x] **Design config file format (YAML, TOML, JSON)**
 	- Pilih format config yang mudah dibaca (YAML/TOML/JSON), dokumentasikan schema.
@@ -74,6 +71,14 @@
 - [ ] **Hot-reload config (notify crate, Arc<RwLock<Config>>)**
 	- Implementasi reload config tanpa restart server (pakai crate `notify`, Arc<RwLock<Config>>).
 	- _Milestone_: Config bisa diubah tanpa downtime.
+
+	- [ ] **Auto-discovery custom modules directory for plugins (configurable via config.yaml)**
+		- Implementasi agar direktori plugin bisa diatur di config.yaml dan modul-modul di-load otomatis saat startup.
+		- _Milestone_: Server otomatis mendeteksi dan me-load plugin dari direktori custom.
+
+- [ ] **Configurable plugin endpoint paths via config.yaml**
+	- Mapping endpoint HTTP ke plugin/module bisa diatur di config.yaml, bukan hardcoded di main.rs.
+	- _Milestone_: Endpoint plugin bisa diubah/ditambah lewat config tanpa rebuild.
 
 ---
 
@@ -90,6 +95,10 @@
 - [ ] **Query string and header parsing**
 	- Parsing query string dan header HTTP untuk kebutuhan lanjutan (auth, dsb).
 	- _Milestone_: Handler bisa akses query/header dengan mudah.
+
+- [ ] **Dynamic routing for plugin endpoints from config**
+	- Routing plugin sepenuhnya dinamis sesuai config, mendukung banyak plugin/endpoint tanpa hardcoded.
+	- _Milestone_: Plugin endpoint bisa diatur/ditambah tanpa perubahan kode.
 
 ---
 
