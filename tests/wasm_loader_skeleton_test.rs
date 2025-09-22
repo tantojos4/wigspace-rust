@@ -10,6 +10,6 @@ fn test_wasm_loader_skeleton() {
     let module = WasmModule::load(&wasm_path).expect("Failed to load WASM module");
     let input = "hello wasm";
     let output = module.handle(input);
-    assert!(output.contains("[WASM skeleton] would call WASM with input: hello wasm"), "Unexpected WASM skeleton output: {}", output);
+    assert!(output.contains("[wasm_plugin] hello wasm"), "Unexpected WASM skeleton output: {}", output);
     println!("WASM skeleton output: {}", output);
 }

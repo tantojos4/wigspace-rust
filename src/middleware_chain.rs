@@ -30,7 +30,6 @@ struct MiddlewareHandlerWrapper {
     next: Arc<dyn Handler>,
 }
 
-use std::sync::RwLock;
 impl Handler for MiddlewareHandlerWrapper {
     fn handle<'a>(
         &'a self,

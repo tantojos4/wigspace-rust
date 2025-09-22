@@ -18,8 +18,15 @@ pub struct PluginVTable {
     pub handle: extern "C" fn(*const c_char) -> *mut c_char,
 }
 
-extern "C" fn handle(_input: *const c_char) -> *mut c_char {
-    let response = "[rust_plugin] hello rust";
+extern "C" fn handle(input: *const c_char) -> *mut c_char {
+    if input.is_null() {
+        let response = "[rust_plugin_example] got: null input";
+        return CString::new(response).unwrap().into_raw();
+    }
+    
+    let input_str = unsafe { CStr::from_ptr(input) };
+    let input_string = input_str.to_string_lossy();
+    let response = format!("[rust_plugin_example] got: {}", input_string);
     CString::new(response).unwrap().into_raw()
 }
 

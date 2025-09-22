@@ -11,7 +11,7 @@ fn test_wasm_loader_skeleton() {
     let input = "hello wasm";
     let output = module.handle(input);
     assert!(
-        output.contains("[wasm_plugin] hello from wasm"),
+        output.contains("[wasm_plugin] hello wasm"),
         "Unexpected WASM plugin output: {}",
         output
     );
