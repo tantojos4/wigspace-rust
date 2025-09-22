@@ -10,7 +10,7 @@ fn test_scripting_loader_skeleton() {
     let input = "hello lua";
     let output = module.handle(input);
     assert!(
-        output.contains("[Lua skeleton] would run script with input: hello lua"),
+        output.contains("[lua_plugin] got: hello lua"),
         "Unexpected Lua skeleton output: {}",
         output
     );

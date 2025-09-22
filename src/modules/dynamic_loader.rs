@@ -28,6 +28,19 @@ pub struct CAbiModule {
 }
 
 impl CAbiModule {
+    /// Load a C ABI module from a dynamic library
+    /// 
+    /// # Safety
+    /// 
+    /// This function is unsafe because it:
+    /// - Loads dynamic libraries which can execute arbitrary code
+    /// - Uses FFI to call functions from the loaded library
+    /// - Stores function pointers with 'static lifetime
+    /// 
+    /// The caller must ensure:
+    /// - The library path points to a valid C ABI library
+    /// - The library exports a 'handle_request' function with the expected signature
+    /// - The library remains loaded for the lifetime of the CAbiModule
     pub unsafe fn load<P: AsRef<OsStr>>(path: P) -> Result<Self, libloading::Error> {
         let lib = unsafe { Library::new(path)? };
         let handler: Symbol<unsafe extern "C" fn(*const u8, usize) -> *mut c_void> =
@@ -46,9 +59,8 @@ impl DynamicModule for CAbiModule {
             let ptr = (self.handler)(bytes.as_ptr(), bytes.len());
             // Assume returned pointer is a null-terminated C string
             let cstr = std::ffi::CStr::from_ptr(ptr as *const i8);
-            let result = cstr.to_string_lossy().into_owned();
             // Free the string if the module provides a free function (not shown here)
-            result
+            cstr.to_string_lossy().into_owned()
         }
     }
 }
@@ -70,6 +82,19 @@ pub struct RustDylibModule {
 }
 
 impl RustDylibModule {
+    /// Load a Rust dynamic library plugin
+    /// 
+    /// # Safety
+    /// 
+    /// This function is unsafe because it:
+    /// - Loads dynamic libraries which can execute arbitrary code
+    /// - Uses FFI to call functions from the loaded library
+    /// - Performs memory transmutations that must be valid
+    /// 
+    /// The caller must ensure:
+    /// - The library path points to a valid Rust plugin library
+    /// - The library exports the expected functions with correct signatures
+    /// - The library is compatible with the current ABI
     pub unsafe fn load<P: AsRef<OsStr>>(path: P) -> Result<Self, libloading::Error> {
         let pathbuf = PathBuf::from(path.as_ref());
         let lib = unsafe { Library::new(&pathbuf)? };
@@ -78,13 +103,12 @@ impl RustDylibModule {
         let vtable = unsafe { vtable_sym() };
         let vtable: &'static PluginVTable = unsafe { std::mem::transmute(vtable) };
         // Optional: init/shutdown
-        let init_fn =
-            lib.get(b"plugin_init")
+        let init_fn = unsafe { lib.get(b"plugin_init") }
                 .ok()
                 .map(|sym: Symbol<unsafe extern "C" fn() -> i32>| unsafe {
                     std::mem::transmute::<_, unsafe extern "C" fn() -> i32>(sym)
                 });
-        let shutdown_fn = lib.get(b"plugin_shutdown").ok().map(
+        let shutdown_fn = unsafe { lib.get(b"plugin_shutdown") }.ok().map(
             |sym: Symbol<unsafe extern "C" fn() -> i32>| unsafe {
                 std::mem::transmute::<_, unsafe extern "C" fn() -> i32>(sym)
             },
